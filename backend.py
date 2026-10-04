@@ -78,6 +78,22 @@ def fetch_json(url: str, params=None):
         raise DataError("数据服务返回格式错误") from exc
 
 
+def fetch_text(url: str):
+    request = urllib.request.Request(url, headers={"User-Agent": "Omarchy-Days/0.1", "Accept": "text/plain"})
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            content = response.read(200_001)
+        if len(content) > 200_000:
+            raise DataError("服务返回的数据过大")
+        return content.decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise DataError(f"数据服务暂不可用（HTTP {exc.code}）") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise DataError("网络连接失败，请稍后重试") from exc
+    except UnicodeError as exc:
+        raise DataError("数据服务返回格式错误") from exc
+
+
 def normalize_query(value: str):
     value = str(value).casefold().replace("ü", "v")
     value = unicodedata.normalize("NFKD", value)
@@ -231,24 +247,100 @@ def month_data(year: int, month: int, today=None):
             "scheduleKnown": data is not None, "sources": data.get("papers", []) if data else []}
 
 
+def parse_ipip_location(text: str):
+    match = re.search(r"来自于[：:]\s*(.+?)\s*$", text.strip())
+    if not match:
+        raise DataError("IP 定位失败，请手动搜索城市")
+    return [part for part in re.split(r"[\s\u3000]+", match.group(1)) if part]
+
+
+def resolve_ipip_city(parts):
+    # myip.ipip.net reports "中国 江苏 苏州 联通": walk backwards past the ISP
+    # label to the first part that names a catalog city, preferring province hints.
+    catalog = city_catalog()
+    for index in range(len(parts) - 1, -1, -1):
+        candidates = [item for item in catalog if item.get("name") == parts[index]]
+        if not candidates:
+            continue
+        context = "".join(parts[:index])
+        candidates.sort(key=lambda item: (0 if item.get("admin1", "")[:2] and item["admin1"][:2] in context else 1, -item.get("population", 0)))
+        return validate_city(candidates[0])
+    return None
+
+
+def locate_via_ipip():
+    # Return a catalog city from myip.ipip.net, or None when the service is
+    # unreachable or reports a location outside mainland China.
+    try:
+        parts = parse_ipip_location(fetch_text("https://myip.ipip.net/"))
+    except DataError:
+        return None
+    if not parts or parts[0] != "中国":
+        return None
+    return resolve_ipip_city(parts)
+
+
+def nearest_catalog_city(latitude, longitude, tolerance=0.25):
+    best = None
+    for item in city_catalog():
+        if abs(item["latitude"] - latitude) <= tolerance and abs(item["longitude"] - longitude) <= tolerance:
+            if best is None or item.get("population", 0) > best.get("population", 0):
+                best = item
+    return best
+
+
+def geocoding_timezone(name, latitude, longitude):
+    data = fetch_json("https://geocoding-api.open-meteo.com/v1/search", {"name": name, "count": 10, "language": "en", "format": "json"})
+    best = None
+    for item in data.get("results", []):
+        try:
+            distance = max(abs(float(item["latitude"]) - latitude), abs(float(item["longitude"]) - longitude))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if distance <= 1 and (best is None or distance < best[0]):
+            best = (distance, item)
+    return best[1].get("timezone") if best else None
+
+
+def locate_via_myip_la():
+    # myip.la answers in English with string coordinates and no timezone.
+    data = fetch_json("https://api.myip.la/en?json")
+    location = data.get("location") or {}
+    name = str(location.get("city") or "").strip()
+    if not name:
+        raise DataError("IP 定位失败，请手动搜索城市")
+    try:
+        lat, lon = float(location["latitude"]), float(location["longitude"])
+        if not math.isfinite(lat) or not math.isfinite(lon) or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DataError("IP 定位失败，请手动搜索城市") from exc
+    known = nearest_catalog_city(lat, lon)
+    if known:
+        # Coordinates inside the catalog give the localized name and timezone.
+        return validate_city(known)
+    item = {"name": name, "englishName": name, "admin1": location.get("province", ""), "country": location.get("country_name", ""),
+            "country_code": location.get("country_code", ""), "latitude": lat, "longitude": lon}
+    try:
+        timezone = location.get("timezone") or geocoding_timezone(name, lat, lon)
+    except DataError:
+        timezone = None
+    if timezone:
+        item["timezone"] = timezone
+    return validate_city(item)
+
+
 def locate_city(force=False):
     path = CACHE / "ip-location.json"
     cached = read_json(path)
-    if not force and cached and time.time() - cached.get("savedAt", 0) < 6 * 3600:
+    if not force and cached and cached.get("source") == "ipip" and time.time() - cached.get("savedAt", 0) < 6 * 3600:
         return validate_city(cached["city"]), ""
     try:
-        data = fetch_json("https://ipwho.is/")
-        if data.get("success") is not True or not data.get("city"):
-            raise DataError("IP 定位失败，请手动搜索城市")
-        item = {"name": data["city"], "admin1": data.get("region", ""), "country": data.get("country", ""), "country_code": data.get("country_code", ""),
-                "latitude": data.get("latitude"), "longitude": data.get("longitude"), "timezone": (data.get("timezone") or {}).get("id", "UTC")}
-        city = validate_city(item)
-        # Localize the IP service's English city label without another request.
-        for known in city_catalog():
-            if normalize_query(city["name"]) in known.get("aliases", []) and abs(city["latitude"] - known["latitude"]) < 1 and abs(city["longitude"] - known["longitude"]) < 1:
-                city.update(name=known["name"], englishName=known.get("englishName", ""), admin1=known["admin1"], country=known["country"])
-                break
-        atomic_json(path, {"savedAt": time.time(), "city": city})
+        city = locate_via_ipip()
+        if city is None:
+            # ipip.net failed or reported an overseas location: recheck with myip.la.
+            city = locate_via_myip_la()
+        atomic_json(path, {"savedAt": time.time(), "source": "ipip", "city": city})
         return city, ""
     except DataError:
         if cached:
