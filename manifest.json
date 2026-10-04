@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "andy.days",
   "name": "日历与天气",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Andy",
   "license": "GPL-3.0-only",
   "description": "中国农历、放假调休和城市七日天气，支持英文与拼音搜索城市",
