@@ -12,7 +12,7 @@ BarWidget {
     implicitHeight: button.implicitHeight
     readonly property bool opened: panel.opened
     readonly property bool popoutSwitchClosing: panel.popoutSwitchClosing
-    readonly property bool preservePopupAppearance: true
+    readonly property bool preservePopupContentAppearance: true
 
     function open() { panel.open() }
     function close() { panel.close() }
