@@ -358,6 +358,7 @@ Item {
                                     ActionButton {
                                         width: 30
                                         text: "×"
+                                        color: "transparent"
                                         visible: cityInput.text.length > 0
                                         Accessible.name: "清空城市搜索"
                                         onClicked: cityInput.text = ""
