@@ -15,6 +15,7 @@ Item {
     property bool popoutSwitchClosing: false
     property var city: null
     property string locationMode: "auto"
+    property string barIconMode: "calendar"
     property string settingsError: ""
     property date today: new Date()
     property int viewYear: today.getFullYear()
@@ -92,13 +93,14 @@ Item {
     }
     DaysModel {
         id: daysModel
-        active: root.opened
+        active: root.opened || root.barIconMode === "weather"
         year: root.viewYear
         month: root.viewMonth
         city: root.city
         locationMode: root.locationMode
         onResultsChanged: root.resultIndex = 0
     }
+    readonly property alias weatherModel: daysModel
     KeyboardPanel {
         id: panel
         bar: root.bar

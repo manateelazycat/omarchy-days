@@ -13,6 +13,6 @@
     "category": "Time",
     "allowMultiple": false,
     "defaultSection": "right",
-    "defaults": { "locationMode": "auto", "city": null }
+    "defaults": { "locationMode": "auto", "city": null, "iconMode": "calendar" }
   }
 }

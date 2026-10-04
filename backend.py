@@ -189,6 +189,36 @@ def refresh_holidays(year):
         return {"ok": False, "known": holiday_data(year) is not None, "changed": False, "error": str(exc)}
 
 
+def today_info(today=None):
+    today = today or date.today()
+    try:
+        from lunar_python import Solar
+    except ImportError as exc:
+        raise DataError("农历依赖尚未安装，请运行 bash bootstrap.sh") from exc
+    lunar = Solar.fromYmd(today.year, today.month, today.day).getLunar()
+    groups = {}
+    for year in (today.year, today.year + 1):
+        data = holiday_data(year)
+        if not data:
+            continue
+        for row in data["days"]:
+            if row["isOffDay"]:
+                groups.setdefault((year, row["name"]), {"name": row["name"], "off": []})["off"].append(date.fromisoformat(row["date"]))
+    holiday = None
+    for group in groups.values():
+        group["off"].sort()
+        if group["off"][0] <= today <= group["off"][-1]:
+            holiday = {"name": group["name"], "state": "during", "days": (group["off"][-1] - today).days}
+            break
+    if holiday is None:
+        upcoming = min((group for group in groups.values() if group["off"][0] > today), key=lambda group: group["off"][0], default=None)
+        if upcoming:
+            holiday = {"name": upcoming["name"], "state": "until", "days": (upcoming["off"][0] - today).days}
+    return {"ok": True, "date": today.isoformat(), "lunar": f"{lunar.getMonthInChinese()}月{lunar.getDayInChinese()}",
+            "lunarYear": f"{lunar.getYearInGanZhi()}年·{lunar.getYearShengXiao()}",
+            "weekday": "一二三四五六日"[today.weekday()], "holiday": holiday}
+
+
 def month_data(year: int, month: int, today=None):
     if not 1901 <= year <= 2099 or not 1 <= month <= 12:
         raise DataError("日历支持 1901—2099 年")
@@ -349,6 +379,7 @@ def main():
     month.add_argument("--month", type=int, required=True)
     holiday = commands.add_parser("holidays")
     holiday.add_argument("--year", type=int, required=True)
+    today_cmd = commands.add_parser("today")
     search = commands.add_parser("search")
     search.add_argument("--query", required=True)
     search.add_argument("--offline", action="store_true")
@@ -363,6 +394,8 @@ def main():
             if not 1901 <= args.year <= 2099:
                 raise DataError("年份超出支持范围")
             result = refresh_holidays(args.year)
+        elif args.command == "today":
+            result = today_info()
         elif args.command == "search":
             result = search_cities(args.query[:120], args.offline)
         else:

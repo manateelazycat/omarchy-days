@@ -64,6 +64,24 @@ class CityTests(unittest.TestCase):
                 backend.validate_city({"name": "test", "latitude": value, "longitude": 0, "timezone": "UTC"})
 
 
+class TodayTests(unittest.TestCase):
+    def info(self, *parts):
+        return backend.today_info(date(*parts))
+
+    def test_lunar_labels(self):
+        self.assertEqual(self.info(2026, 2, 17)["lunar"], "正月初一")
+        self.assertEqual(self.info(2026, 10, 4)["lunar"], "八月廿四")
+
+    def test_holiday_countdown(self):
+        until = self.info(2026, 9, 20)["holiday"]
+        self.assertEqual(until, {"name": "中秋节", "state": "until", "days": 5})
+        during = self.info(2026, 10, 4)["holiday"]
+        self.assertEqual(during, {"name": "国庆节", "state": "during", "days": 3})
+
+    def test_unknown_next_year_holiday_is_none(self):
+        self.assertIsNone(self.info(2026, 12, 30)["holiday"])
+
+
 class WeatherTests(unittest.TestCase):
     def setUp(self):
         self.city = backend.validate_city(backend.search_cities("Beijing", offline=True)["results"][0])
