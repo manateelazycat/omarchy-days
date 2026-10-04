@@ -64,6 +64,84 @@ class CityTests(unittest.TestCase):
                 backend.validate_city({"name": "test", "latitude": value, "longitude": 0, "timezone": "UTC"})
 
 
+class IpLocationTests(unittest.TestCase):
+    def test_parse_ipip_location(self):
+        parts = backend.parse_ipip_location("当前 IP：2408:843c::1  来自于：中国 江苏 苏州  联通\n")
+        self.assertEqual(parts, ["中国", "江苏", "苏州", "联通"])
+
+    def test_parse_ipip_location_rejects_garbage(self):
+        with self.assertRaises(backend.DataError):
+            backend.parse_ipip_location("Bad Gateway")
+
+    def test_resolve_city_with_province_hint(self):
+        city = backend.resolve_ipip_city(["中国", "江苏", "苏州", "联通"])
+        self.assertEqual(city["name"], "苏州")
+        self.assertEqual(city["admin1"], "江苏省")
+        self.assertEqual(city["timezone"], "Asia/Shanghai")
+
+    def test_resolve_municipality_without_city_repeat(self):
+        city = backend.resolve_ipip_city(["中国", "上海", "联通"])
+        self.assertEqual(city["name"], "上海")
+        self.assertEqual(city["admin1"], "上海市")
+
+    def test_resolve_unknown_location_returns_none(self):
+        self.assertIsNone(backend.resolve_ipip_city(["美国", "加利福尼亚", "洛杉矶"]))
+
+    def test_locate_city_uses_ipip_and_caches(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        with patch.object(backend, "CACHE", Path(temp.name)), \
+             patch.object(backend, "fetch_text", return_value="当前 IP：1.2.3.4  来自于：中国 江苏 苏州  联通") as fetch, \
+             patch.object(backend, "fetch_json") as fetch_json:
+            city, warning = backend.locate_city()
+            fetch.assert_called_once_with("https://myip.ipip.net/")
+            fetch_json.assert_not_called()
+            self.assertEqual(city["name"], "苏州")
+            self.assertEqual(warning, "")
+            backend.locate_city()
+            fetch.assert_called_once()
+            saved = json.loads((Path(temp.name) / "ip-location.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["source"], "ipip")
+
+    def myip_la_fetch(self, url, params=None):
+        if "myip.la" in url:
+            return {"ip": "162.206.79.195", "location": {"city": "Sunnyvale", "country_code": "US", "country_name": "United States",
+                    "latitude": "37.371609", "longitude": "-122.038254", "province": "California"}}
+        assert "geocoding-api" in url
+        return {"results": [{"name": "Sunnyvale", "latitude": 37.3716, "longitude": -122.0383, "country_code": "US", "timezone": "America/Los_Angeles"}]}
+
+    def test_overseas_ipip_label_falls_back_to_myip_la(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        with patch.object(backend, "CACHE", Path(temp.name)), \
+             patch.object(backend, "fetch_text", return_value="当前 IP：1.2.3.4  来自于：美国 加利福尼亚 洛杉矶"), \
+             patch.object(backend, "fetch_json", side_effect=self.myip_la_fetch) as fetch_json:
+            city, warning = backend.locate_city()
+            self.assertEqual([call.args[0] for call in fetch_json.call_args_list],
+                             ["https://api.myip.la/en?json", "https://geocoding-api.open-meteo.com/v1/search"])
+            self.assertEqual(city["name"], "Sunnyvale")
+            self.assertEqual(city["country_code"], "US")
+            self.assertEqual(city["timezone"], "America/Los_Angeles")
+            self.assertEqual(warning, "")
+
+    def test_ipip_network_failure_falls_back_to_myip_la(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        def myip_fetch(url, params=None):
+            if "myip.la" in url:
+                return {"ip": "112.10.0.1", "location": {"city": "Suzhou", "country_code": "CN", "country_name": "China",
+                        "latitude": "31.299", "longitude": "120.595", "province": "Jiangsu"}}
+            raise AssertionError("geocoder must not be queried for catalog cities")
+        with patch.object(backend, "CACHE", Path(temp.name)), \
+             patch.object(backend, "fetch_text", side_effect=backend.DataError("offline")), \
+             patch.object(backend, "fetch_json", side_effect=myip_fetch):
+            city, warning = backend.locate_city()
+            self.assertEqual(city["name"], "苏州")
+            self.assertEqual(city["admin1"], "江苏省")
+            self.assertEqual(city["timezone"], "Asia/Shanghai")
+            self.assertEqual(warning, "")
+
+
 class WeatherTests(unittest.TestCase):
     def setUp(self):
         self.city = backend.validate_city(backend.search_cities("Beijing", offline=True)["results"][0])

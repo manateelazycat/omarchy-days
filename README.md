@@ -66,7 +66,7 @@ omarchy-shell andy.days refresh
 
 天气来自 [Open-Meteo](https://open-meteo.com/en/docs)。昨天使用该接口的近期历史模型数据，当前天气同样基于天气模型，并非气象站实测值。温度单位为摄氏度，风速为 km/h；缺失数据用 `—` 显示。免费公开接口适用于非商业使用；商业用途请遵守服务条款或换用商业接口。
 
-城市索引由 [GeoNames](https://www.geonames.org/) `cities15000` 数据筛选生成（中国大陆、香港、澳门、台湾），是有规模的城市和城镇集合，不能保证覆盖所有乡镇。索引未匹配时由 [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) 在线补充全球地点。IP 定位使用 [IPWhois](https://ipwhois.io/documentation)；自动定位可能受代理和 VPN 影响。手动模式不调用 IP 定位服务。
+城市索引由 [GeoNames](https://www.geonames.org/) `cities15000` 数据筛选生成（中国大陆、香港、澳门、台湾），是有规模的城市和城镇集合，不能保证覆盖所有乡镇。索引未匹配时由 [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) 在线补充全球地点。IP 定位优先使用 [myip.ipip.net](https://myip.ipip.net/)，返回的中文地点通过本地城市索引解析为坐标；定位失败或显示为海外时，改用 [myip.la](https://www.myip.la/) 复核，境外城市由其坐标加上 Open-Meteo 时区补全。自动定位可能受代理和 VPN 影响。手动模式不调用 IP 定位服务。
 
 天气、搜索、IP 及年度假期缓存保存在 `${XDG_CACHE_HOME:-~/.cache}/omarchy-days/`。切换城市时清除旧面板数据，网络失败不会显示其他城市的天气。旧天气缓存最多回退 48 小时，缓存日期跨天时重新按当前日期排列，缺少的日期显示 `—`。
 
