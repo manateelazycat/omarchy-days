@@ -1,0 +1,10 @@
+Offline city index based on GeoNames (https://www.geonames.org/).
+Source: https://download.geonames.org/export/dump/cities15000.zip
+Administrative labels: https://download.geonames.org/export/dump/admin1CodesASCII.txt
+License: Creative Commons Attribution 4.0 International
+License URL: https://creativecommons.org/licenses/by/4.0/
+
+Modifications by Omarchy Days: selected records for CN/HK/MO/TW, reduced fields,
+normalized search aliases, selected Chinese display names and province labels,
+and used Asia/Shanghai for mainland China. Original identifiers and coordinates
+are retained. No completeness or accuracy guarantee is implied.
