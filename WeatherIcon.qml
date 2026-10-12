@@ -2,12 +2,11 @@
 // Copyright (C) 2026 Andy Stewart
 
 import QtQuick
-import qs.Commons
-
+import qs.Commons as Commons
 Canvas {
     id: root
     property string icon: "unknown"
-    property color ink: Color.accent
+    property color ink: Commons.Color.accent
     implicitWidth: 36
     implicitHeight: 36
     onIconChanged: requestPaint()

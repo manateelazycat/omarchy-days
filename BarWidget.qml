@@ -1,3 +1,4 @@
+import "CompatUi" as ThemeUi
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Andy Stewart
 
@@ -32,7 +33,7 @@ BarWidget {
         panel.settingsError = ""
     }
 
-    BarIconButton {
+    ThemeUi.BarIconButton {
         id: button
         anchors.fill: parent
         bar: root.bar

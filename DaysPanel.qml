@@ -1,9 +1,10 @@
+import "CompatUi" as ThemeUi
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Andy Stewart
 
 import QtQuick
 import Quickshell
-import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 Item {
@@ -99,7 +100,7 @@ Item {
         locationMode: root.locationMode
         onResultsChanged: root.resultIndex = 0
     }
-    KeyboardPanel {
+    ThemeUi.KeyboardPanel {
         id: panel
         bar: root.bar
         anchorItem: root.anchorItem
@@ -141,7 +142,7 @@ Item {
                         ActionButton { visible: false; text: "刷新"; onClicked: root.refresh() }
                         ActionButton { visible: false; text: "×"; onClicked: root.close(); Accessible.name: "关闭面板" }
                     }
-                    Rectangle { width: parent.width; height: 1; color: Color.popups.text; opacity: 0.12 }
+                    Rectangle { width: parent.width; height: 1; color: Commons.Color.popups.text; opacity: 0.12 }
 
                     Row {
                         id: columns
@@ -183,7 +184,7 @@ Item {
                                         text: modelData
                                         horizontalAlignment: Text.AlignHCenter
                                         opacity: index >= 5 ? 1 : 0.75
-                                        color: index >= 5 ? root.restColor : Color.popups.text
+                                        color: index >= 5 ? root.restColor : Commons.Color.popups.text
                                     }
                                 }
                             }
@@ -200,9 +201,9 @@ Item {
                                         width: (calendarColumn.width - 24) / 7
                                         height: 76
                                         radius: 6
-                                        color: selected && !modelData.today ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.18) : dayMouse.containsMouse ? root.soft : "transparent"
+                                        color: selected && !modelData.today ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.18) : dayMouse.containsMouse ? root.soft : "transparent"
                                         border.width: selected && !modelData.today ? 1 : 0
-                                        border.color: Color.accent
+                                        border.color: Commons.Color.accent
                                         Label {
                                             id: dateNumber
                                             anchors.top: parent.top; anchors.topMargin: 6
@@ -211,7 +212,7 @@ Item {
                                             text: dayCell.modelData.day
                                             font.pixelSize: 21
                                             font.bold: dayCell.selected && !dayCell.modelData.today
-                                            color: dayCell.modelData.today ? "#ffffff" : Color.popups.text
+                                            color: dayCell.modelData.today ? "#ffffff" : Commons.Color.popups.text
                                             opacity: dayCell.modelData.inMonth ? 1 : 0.45
                                         }
                                         Rectangle {
@@ -230,7 +231,7 @@ Item {
                                             font.pixelSize: 13
                                             wrapMode: Text.Wrap
                                             maximumLineCount: 2
-                                            color: dayCell.modelData.festivals.length || dayCell.modelData.term ? Color.accent : Color.popups.text
+                                            color: dayCell.modelData.festivals.length || dayCell.modelData.term ? Commons.Color.accent : Commons.Color.popups.text
                                             opacity: 0.85 * (dayCell.modelData.inMonth ? 1 : 0.45)
                                         }
                                         Rectangle {
@@ -268,7 +269,7 @@ Item {
                             Label {
                                 visible: daysModel.calendarError !== ""
                                 width: parent.width; wrapMode: Text.Wrap; elide: Text.ElideNone
-                                text: daysModel.calendarError; color: Color.urgent
+                                text: daysModel.calendarError; color: Commons.Color.urgent
                             }
                             Label { visible: daysModel.calendarBusy && !daysModel.calendarData.days.length; text: "正在加载农历…"; opacity: 0.75 }
                             Rectangle {
@@ -286,7 +287,7 @@ Item {
                                         width: parent.width
                                         visible: text !== ""
                                         text: root.selectedDay ? root.selectedDay.festivals.concat(root.selectedDay.term ? [root.selectedDay.term] : []).join(" · ") : ""
-                                        color: Color.accent
+                                        color: Commons.Color.accent
                                     }
                                     Label { width: parent.width; text: root.dayStatus(root.selectedDay); color: root.selectedDay && root.selectedDay.status === "work" ? root.workColor : root.restColor }
                                 }
@@ -326,7 +327,7 @@ Item {
                             Rectangle {
                                 width: parent.width; height: 44; radius: 6
                                 color: root.soft
-                                border.color: cityInput.activeFocus ? Color.accent : "transparent"
+                                border.color: cityInput.activeFocus ? Commons.Color.accent : "transparent"
                                 border.width: 1
                                 TextInput {
                                     id: cityInput
@@ -334,9 +335,9 @@ Item {
                                     anchors.right: inputActions.left; anchors.rightMargin: 10
                                     anchors.top: parent.top; anchors.bottom: parent.bottom
                                     verticalAlignment: TextInput.AlignVCenter
-                                    color: Color.popups.text
-                                    selectionColor: Color.accent; selectedTextColor: Color.background
-                                    font.family: Style.font.family; font.pixelSize: 16
+                                    color: Commons.Color.popups.text
+                                    selectionColor: Commons.Color.accent; selectedTextColor: Commons.Color.background
+                                    font.family: Commons.Style.font.family; font.pixelSize: 16
                                     selectByMouse: true; clip: true; maximumLength: 120
                                     onTextChanged: daysModel.search(text)
                                     Keys.onEscapePressed: function(event) {
@@ -379,7 +380,7 @@ Item {
                                     width: parent.width
                                     visible: daysModel.searchBusy || daysModel.results.length === 0
                                     text: daysModel.searchBusy ? "正在搜索…" : daysModel.searchError || "没有匹配的城市，请尝试完整拼音或英文名"
-                                    color: daysModel.searchError ? Color.urgent : Color.popups.text
+                                    color: daysModel.searchError ? Commons.Color.urgent : Commons.Color.popups.text
                                     wrapMode: Text.Wrap; elide: Text.ElideNone; opacity: 0.7
                                 }
                                 Repeater {
@@ -400,7 +401,7 @@ Item {
                                     }
                                 }
                             }
-                            Label { width: parent.width; visible: root.settingsError !== ""; text: root.settingsError; color: Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
+                            Label { width: parent.width; visible: root.settingsError !== ""; text: root.settingsError; color: Commons.Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
                             Column {
                                 width: parent.width
                                 visible: !root.searching
@@ -425,7 +426,7 @@ Item {
                                     visible: daysModel.weatherError !== "" || (root.weather && root.weather.warning !== "")
                                     width: parent.width; wrapMode: Text.Wrap; elide: Text.ElideNone
                                     text: daysModel.weatherError || (root.weather ? root.weather.warning : "")
-                                    color: daysModel.weatherError ? Color.urgent : root.workColor
+                                    color: daysModel.weatherError ? Commons.Color.urgent : root.workColor
                                     font.pixelSize: 15
                                 }
                                 Repeater {

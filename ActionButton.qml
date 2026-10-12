@@ -2,8 +2,7 @@
 // Copyright (C) 2026 Andy Stewart
 
 import QtQuick
-import qs.Commons
-
+import qs.Commons as Commons
 Rectangle {
     id: root
     property string text: ""
@@ -12,13 +11,13 @@ Rectangle {
     implicitWidth: label.implicitWidth + 24
     implicitHeight: 36
     radius: 6
-    color: emphasized ? Color.accent : mouse.containsMouse || activeFocus ? Qt.rgba(0.5, 0.5, 0.5, 0.18) : Qt.rgba(0.5, 0.5, 0.5, 0.08)
+    color: emphasized ? Commons.Color.accent : mouse.containsMouse || activeFocus ? Qt.rgba(0.5, 0.5, 0.5, 0.18) : Qt.rgba(0.5, 0.5, 0.5, 0.08)
     opacity: enabled ? 1 : 0.35
     activeFocusOnTab: true
     Accessible.role: Accessible.Button
     Accessible.name: text
     Keys.onReturnPressed: clicked()
     Keys.onSpacePressed: clicked()
-    Label { id: label; anchors.centerIn: parent; text: root.text; color: root.emphasized ? Color.background : Color.popups.text }
+    Label { id: label; anchors.centerIn: parent; text: root.text; color: root.emphasized ? Commons.Color.background : Commons.Color.popups.text }
     MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.clicked() }
 }

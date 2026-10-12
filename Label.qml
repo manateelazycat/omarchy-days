@@ -2,11 +2,10 @@
 // Copyright (C) 2026 Andy Stewart
 
 import QtQuick
-import qs.Commons
-
+import qs.Commons as Commons
 Text {
-    color: Color.popups.text
-    font.family: Style.font.family
+    color: Commons.Color.popups.text
+    font.family: Commons.Style.font.family
     font.pixelSize: 16
     textFormat: Text.PlainText
     elide: Text.ElideRight

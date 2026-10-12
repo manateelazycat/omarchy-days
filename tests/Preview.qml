@@ -5,8 +5,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "Days" as Days
-import qs.Commons
-
+import qs.Commons as Commons
 ShellRoot {
     function panelItem() {
         for (var i = 0; i < widget.children.length; i++)
@@ -24,11 +23,11 @@ ShellRoot {
         property string position: "top"
         property bool vertical: false
         property int barSize: 36
-        property color foreground: Color.foreground
-        property color barForeground: Color.foreground
-        property color background: Color.background
-        property color urgent: Color.urgent
-        property string fontFamily: Style.font.family
+        property color foreground: Commons.Color.foreground
+        property color barForeground: Commons.Color.foreground
+        property color background: Commons.Color.background
+        property color urgent: Commons.Color.urgent
+        property string fontFamily: Commons.Style.font.family
         property bool transparent: false
         property bool foregroundAnimationEnabled: true
         property bool centerSectionRevealHeld: false
@@ -54,7 +53,7 @@ ShellRoot {
         screen: Quickshell.screens.find(function(s) { return s.name === "HDMI-A-1" }) || Quickshell.screens[0]
         anchors { top: true; left: true; right: true }
         implicitHeight: 36
-        color: Color.background
+        color: Commons.Color.background
         Days.BarWidget {
             id: widget
             anchors.horizontalCenter: parent.horizontalCenter
