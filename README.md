@@ -45,7 +45,8 @@ omarchy plugin remove andy.days --yes
 
 - 点击状态栏日历图标：打开／关闭面板；点击面板外或按 `Esc` 关闭。
 - `‹` / `›` 或左右方向键：切换月份；“今天”或 `Home` 返回今天。
-- 按 `/` 聚焦城市搜索；输入至少两个字符；上下键选候选项，`Enter` 确认。
+- 按 `/` 聚焦城市搜索；直接输入英文／拼音，或用 `Ctrl+V` / `Shift+Insert` 粘贴中文等城市名称；输入至少两个字符；上下键选候选项，`Enter` 确认。
+- 搜索框不使用原生输入法或自动读取剪贴板。主动粘贴需要 `wl-paste`（`wl-clipboard` 包），在独立进程中最多读取 4 KiB，超时 1 秒；搜索文本最多 120 字符。中键不粘贴。
 - 清空搜索或搜索框内按 `Esc` 返回天气；“IP 定位”恢复自动定位。
 - 图标中键强制更新天气。
 
@@ -75,6 +76,8 @@ omarchy-shell andy.days refresh
 ```bash
 bash bootstrap.sh
 python3 -m unittest discover -s tests -v
+# 输入与剪贴板回归检查需要 Qt 6 开发文件、Qt Test、g++ 和 pkg-config
+python3 scripts/check_input.py
 omarchy plugin validate .
 python3 backend.py month --year 2026 --month 10
 python3 backend.py search --query 'shang hai' --offline

@@ -4,6 +4,7 @@ import "CompatUi" as ThemeUi
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons as Commons
 import qs.Ui
 
@@ -22,6 +23,9 @@ Item {
     property int viewMonth: today.getMonth() + 1
     property string selectedDate: Qt.formatDate(today, "yyyy-MM-dd")
     property int resultIndex: 0
+    property int panelGeneration: 0
+    property string pasteError: ""
+    onOpenedChanged: { panelGeneration++; pasteError = "" }
     readonly property string todayKey: Qt.formatDate(today, "yyyy-MM-dd")
     readonly property var selectedDay: {
         var days = daysModel.calendarData.days || []
@@ -78,6 +82,30 @@ Item {
         if (day.status === "work") return day.holiday + " · 调休上班"
         if (!day.scheduleKnown) return "年度放假调休安排尚未收录"
         return day.status === "weekend" ? "周末" : "工作日"
+    }
+
+    function requestPaste() {
+        if (!root.opened || !cityInput.activeFocus || clipboardProcess.running) return
+        root.pasteError = ""
+        clipboardProcess.editGeneration = cityInput.editGeneration
+        clipboardProcess.panelGeneration = root.panelGeneration
+        clipboardProcess.running = true
+    }
+
+    Process {
+        id: clipboardProcess
+        property int editGeneration: 0
+        property int panelGeneration: 0
+        command: ["python3", decodeURIComponent(String(Qt.resolvedUrl("clipboard.py")).replace(/^file:\/\//, ""))]
+        stdout: StdioCollector { id: clipboardOutput; waitForEnd: true }
+        onExited: function(code) {
+            if (!root.opened || !cityInput.activeFocus || editGeneration !== cityInput.editGeneration || panelGeneration !== root.panelGeneration) return
+            var result
+            try { result = JSON.parse(clipboardOutput.text) }
+            catch (e) { result = {ok: false, error: "无法读取剪贴板文本"} }
+            if (code === 0 && result.ok) cityInput.replaceSelection(result.text)
+            else root.pasteError = result.error || "无法读取剪贴板文本"
+        }
     }
 
     SystemClock {
@@ -329,7 +357,7 @@ Item {
                                 color: root.soft
                                 border.color: cityInput.activeFocus ? Commons.Color.accent : "transparent"
                                 border.width: 1
-                                TextInput {
+                                SafeCityInput {
                                     id: cityInput
                                     anchors.left: parent.left; anchors.leftMargin: 11
                                     anchors.right: inputActions.left; anchors.rightMargin: 10
@@ -339,12 +367,13 @@ Item {
                                     selectionColor: Commons.Color.accent; selectedTextColor: Commons.Color.background
                                     font.family: Commons.Style.font.family; font.pixelSize: 16
                                     selectByMouse: true; clip: true; maximumLength: 120
-                                    onTextChanged: daysModel.search(text)
+                                    onTextChanged: { root.pasteError = ""; daysModel.search(text) }
+                                    onPasteRequested: root.requestPaste()
                                     Keys.onEscapePressed: function(event) {
                                         if (text.length) { text = ""; event.accepted = true }
                                         else root.close()
                                     }
-                                    Keys.onPressed: function(event) {
+                                    onSearchKeyPressed: function(event) {
                                         if (event.key === Qt.Key_Down) { root.resultIndex = Math.min(daysModel.results.length - 1, root.resultIndex + 1); event.accepted = true }
                                         else if (event.key === Qt.Key_Up) { root.resultIndex = Math.max(0, root.resultIndex - 1); event.accepted = true }
                                         else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && daysModel.results.length > 0) { root.chooseCity(daysModel.results[Math.max(0, root.resultIndex)]); event.accepted = true }
@@ -372,6 +401,7 @@ Item {
                                     }
                                 }
                             }
+                            Label { width: parent.width; visible: root.pasteError !== ""; text: root.pasteError; color: Commons.Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
                             Column {
                                 width: parent.width
                                 visible: root.searching

@@ -15,7 +15,7 @@ if [[ "$source_dir" != "$target_dir" ]]; then
     printf '目标是 Git 安装目录，请在该目录中更新插件：%s\n' "$target_dir" >&2
     exit 1
   fi
-  for item in manifest.json BarWidget.qml CalendarIcon.qml DaysPanel.qml DaysModel.qml ActionButton.qml Label.qml WeatherIcon.qml backend.py requirements.txt bootstrap.sh install.sh data licenses CompatUi README.md LICENSE preview.png; do
+  for item in manifest.json BarWidget.qml CalendarIcon.qml DaysPanel.qml SafeCityInput.qml DaysModel.qml ActionButton.qml Label.qml WeatherIcon.qml backend.py clipboard.py requirements.txt bootstrap.sh install.sh data licenses CompatUi README.md LICENSE preview.png; do
     cp -R -- "$source_dir/$item" "$target_dir/"
   done
 fi
