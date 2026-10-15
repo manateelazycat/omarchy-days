@@ -7,6 +7,7 @@ Rectangle {
     id: root
     property string text: ""
     property bool emphasized: false
+    property int fontPixelSize: 16
     signal clicked()
     implicitWidth: label.implicitWidth + 24
     implicitHeight: 36
@@ -18,6 +19,6 @@ Rectangle {
     Accessible.name: text
     Keys.onReturnPressed: clicked()
     Keys.onSpacePressed: clicked()
-    Label { id: label; anchors.centerIn: parent; text: root.text; color: root.emphasized ? Commons.Color.background : Commons.Color.popups.text }
+    Label { id: label; anchors.centerIn: parent; text: root.text; font.pixelSize: root.fontPixelSize; color: root.emphasized ? Commons.Color.background : Commons.Color.popups.text }
     MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.clicked() }
 }

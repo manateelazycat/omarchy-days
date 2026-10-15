@@ -23,13 +23,22 @@ BarWidget {
         var entry = {id: root.moduleName}
         for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
         for (var field in values) entry[field] = values[field]
-        if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
-            if (!root.bar.shell.updateEntryInline(root.moduleName, entry)) {
-                panel.settingsError = "城市设置保存失败，请重新打开插件后重试"
-                return
-            }
+        var changed = false
+        for (var name in values) {
+            if (JSON.stringify(root.settings[name]) !== JSON.stringify(values[name])) changed = true
         }
-        root.settings = entry
+        // updateEntryInline returns false for a no-op, not just an error.
+        if (!changed) { panel.settingsError = ""; return }
+        if (!root.bar || !root.bar.shell || typeof root.bar.shell.updateEntryInline !== "function") {
+            panel.settingsError = "城市设置保存接口不可用，请重新加载插件"
+            return
+        }
+        if (!root.bar.shell.updateEntryInline(root.moduleName, entry)) {
+            panel.settingsError = "城市设置保存失败，请重新打开插件后重试"
+            return
+        }
+        // Let the host update settings on every monitor through its config
+        // change handler; avoid a separate local-only settings assignment.
         panel.settingsError = ""
     }
 

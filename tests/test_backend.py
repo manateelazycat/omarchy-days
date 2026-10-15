@@ -144,6 +144,9 @@ class IpLocationTests(unittest.TestCase):
 
 class WeatherTests(unittest.TestCase):
     def setUp(self):
+        provider_patch = patch.object(backend, "weather_settings", return_value={"provider": "open-meteo"})
+        provider_patch.start()
+        self.addCleanup(provider_patch.stop)
         self.city = backend.validate_city(backend.search_cities("Beijing", offline=True)["results"][0])
         self.temp = tempfile.TemporaryDirectory()
         self.cache_patch = patch.object(backend, "CACHE", Path(self.temp.name))

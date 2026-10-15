@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+
+# Local weather authentication keys and tokens (never commit).
+/data/**/*.pem
+/data/**/*.key
+/data/**/*.jwt
+/data/qweather/
