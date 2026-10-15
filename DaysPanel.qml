@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons as Commons
 import qs.Ui
+import "assets/qweather/Glyphs.js" as AlertGlyphs
 
 Item {
     id: root
@@ -18,6 +19,7 @@ Item {
     property var city: null
     property string locationMode: "auto"
     property string settingsError: ""
+    readonly property real contentScale: 0.85
     property date today: new Date()
     property int viewYear: today.getFullYear()
     property int viewMonth: today.getMonth() + 1
@@ -25,7 +27,10 @@ Item {
     property int resultIndex: 0
     property int panelGeneration: 0
     property string pasteError: ""
-    onOpenedChanged: { panelGeneration++; pasteError = "" }
+    onOpenedChanged: {
+        panelGeneration++; pasteError = ""
+        if (opened && !weatherSettings.editing) weatherSettings.load()
+    }
     readonly property string todayKey: Qt.formatDate(today, "yyyy-MM-dd")
     readonly property var selectedDay: {
         var days = daysModel.calendarData.days || []
@@ -34,8 +39,12 @@ Item {
     }
     readonly property var weather: daysModel.weatherData
     readonly property var current: weather ? weather.current : null
-    readonly property string cityName: city && locationMode === "manual" ? city.name : weather ? weather.city.name : "自动定位"
-    readonly property bool searching: cityInput.text.trim().length >= 2
+    function placeName(place) {
+        return place.name + (place.kind === "poi" && place.cityName ? " · " + place.cityName : "")
+    }
+    readonly property var fixedLocation: weatherSettings.savedSettings.provider === "qweather" && weatherSettings.savedSettings.customLocation && weatherSettings.savedSettings.customLocation.enabled ? weatherSettings.savedSettings.customLocation : null
+    readonly property string cityName: fixedLocation ? fixedLocation.name : city && locationMode === "manual" ? placeName(city) : weather ? placeName(weather.city) : "自动定位"
+    readonly property bool searching: !fixedLocation && cityInput.text.trim().length >= 2
     readonly property color soft: Qt.rgba(0.5, 0.5, 0.5, 0.09)
     readonly property color restColor: "#8fbd9c"
     readonly property color workColor: "#d4a270"
@@ -49,7 +58,7 @@ Item {
         root.close()
         Qt.callLater(function() { root.popoutSwitchClosing = false })
     }
-    function refresh() { daysModel.refreshCalendar(); daysModel.refreshWeather(true) }
+    function refresh() { daysModel.refreshCalendar(); daysModel.refreshWeather(true); daysModel.refreshAlerts(true) }
     function moveMonth(delta) {
         var next = new Date(viewYear, viewMonth - 1 + delta, 1)
         if (next.getFullYear() < 1901 || next.getFullYear() > 2099) return
@@ -128,6 +137,7 @@ Item {
         locationMode: root.locationMode
         onResultsChanged: root.resultIndex = 0
     }
+    FontLoader { id: alertFont; source: Qt.resolvedUrl("assets/qweather/qweather-icons.ttf") }
     ThemeUi.KeyboardPanel {
         id: panel
         bar: root.bar
@@ -135,8 +145,8 @@ Item {
         owner: root.hostWidget
         open: root.opened
         focusTarget: keyTarget
-        contentWidth: fittedContentWidth(1120)
-        contentHeight: fittedContentHeight(mainColumn.implicitHeight)
+        contentWidth: fittedContentWidth(1000)
+        contentHeight: fittedContentHeight(mainColumn.implicitHeight * root.contentScale)
 
         Item {
             id: keyTarget
@@ -144,24 +154,26 @@ Item {
             focus: true
             Keys.onEscapePressed: root.close()
             Keys.onPressed: function(event) {
-                if (cityInput.activeFocus) return
+                if (cityInput.activeFocus || weatherSettings.editing) return
                 if (event.key === Qt.Key_Left) { root.moveMonth(-1); event.accepted = true }
                 else if (event.key === Qt.Key_Right) { root.moveMonth(1); event.accepted = true }
                 else if (event.key === Qt.Key_Home) { root.goToday(); event.accepted = true }
-                else if (event.key === Qt.Key_Slash) { cityInput.forceActiveFocus(); event.accepted = true }
+                else if (event.key === Qt.Key_Slash && !root.fixedLocation) { cityInput.forceActiveFocus(); event.accepted = true }
             }
             Flickable {
                 id: scroll
                 anchors.fill: parent
                 clip: true
-                contentWidth: Math.max(width, 1000)
-                contentHeight: mainColumn.implicitHeight
+                contentWidth: width
+                contentHeight: mainColumn.implicitHeight * root.contentScale
                 boundsBehavior: Flickable.StopAtBounds
                 interactive: contentHeight > height || contentWidth > width
 
                 Column {
                     id: mainColumn
-                    width: scroll.contentWidth
+                    width: scroll.contentWidth / root.contentScale
+                    scale: root.contentScale
+                    transformOrigin: Item.TopLeft
                     spacing: 18
                     Row {
                         width: parent.width
@@ -340,160 +352,230 @@ Item {
                             }
                         }
 
-                        Column {
-                            id: weatherColumn
+                        Item {
+                            id: weatherPane
                             width: columns.width - calendarColumn.width - columns.spacing
-                            spacing: 12
-                            Label {
-                                width: parent.width
-                                height: 36
-                                verticalAlignment: Text.AlignVCenter
-                                text: root.cityName
-                                font.pixelSize: 23
-                                font.bold: true
-                            }
-                            Rectangle {
-                                width: parent.width; height: 44; radius: 6
-                                color: root.soft
-                                border.color: cityInput.activeFocus ? Commons.Color.accent : "transparent"
-                                border.width: 1
-                                SafeCityInput {
-                                    id: cityInput
-                                    anchors.left: parent.left; anchors.leftMargin: 11
-                                    anchors.right: inputActions.left; anchors.rightMargin: 10
-                                    anchors.top: parent.top; anchors.bottom: parent.bottom
-                                    verticalAlignment: TextInput.AlignVCenter
-                                    color: Commons.Color.popups.text
-                                    selectionColor: Commons.Color.accent; selectedTextColor: Commons.Color.background
-                                    font.family: Commons.Style.font.family; font.pixelSize: 16
-                                    selectByMouse: true; clip: true; maximumLength: 120
-                                    onTextChanged: { root.pasteError = ""; daysModel.search(text) }
-                                    onPasteRequested: root.requestPaste()
-                                    Keys.onEscapePressed: function(event) {
-                                        if (text.length) { text = ""; event.accepted = true }
-                                        else root.close()
+                            height: calendarColumn.implicitHeight
+                            Flickable {
+                                id: weatherScroll
+                                anchors.top: parent.top
+                                anchors.left: parent.left; anchors.right: parent.right
+                                anchors.bottom: weatherSettings.top; anchors.bottomMargin: 10
+                                clip: true
+                                contentWidth: width; contentHeight: weatherColumn.implicitHeight
+                                boundsBehavior: Flickable.StopAtBounds
+                                interactive: !weatherSettings.editing && contentHeight > height
+                                Column {
+                                    id: weatherColumn
+                                    width: weatherScroll.width
+                                    spacing: 12
+                                    Label {
+                                        width: parent.width
+                                        height: 36
+                                        verticalAlignment: Text.AlignVCenter
+                                        text: root.cityName
+                                        font.pixelSize: 23
+                                        font.bold: true
                                     }
-                                    onSearchKeyPressed: function(event) {
-                                        if (event.key === Qt.Key_Down) { root.resultIndex = Math.min(daysModel.results.length - 1, root.resultIndex + 1); event.accepted = true }
-                                        else if (event.key === Qt.Key_Up) { root.resultIndex = Math.max(0, root.resultIndex - 1); event.accepted = true }
-                                        else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && daysModel.results.length > 0) { root.chooseCity(daysModel.results[Math.max(0, root.resultIndex)]); event.accepted = true }
-                                    }
-                                }
-                                Label { anchors.fill: cityInput; verticalAlignment: Text.AlignVCenter; text: "搜索城市英文 / 拼音，如 shanghai"; opacity: 0.65; visible: cityInput.text.length === 0 }
-                                Row {
-                                    id: inputActions
-                                    anchors.right: parent.right; anchors.rightMargin: 4
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 4
-                                    ActionButton {
-                                        width: 30
-                                        text: "×"
-                                        color: "transparent"
-                                        visible: cityInput.text.length > 0
-                                        Accessible.name: "清空城市搜索"
-                                        onClicked: cityInput.text = ""
-                                    }
-                                    ActionButton {
-                                        id: locationButton
-                                        text: root.locationMode === "manual" ? "IP 定位" : "自动定位"
-                                        enabled: root.locationMode === "manual"
-                                        onClicked: { root.automaticRequested(); cityInput.text = "" }
-                                    }
-                                }
-                            }
-                            Label { width: parent.width; visible: root.pasteError !== ""; text: root.pasteError; color: Commons.Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
-                            Column {
-                                width: parent.width
-                                visible: root.searching
-                                spacing: 4
-                                Label {
-                                    width: parent.width
-                                    visible: daysModel.searchBusy || daysModel.results.length === 0
-                                    text: daysModel.searchBusy ? "正在搜索…" : daysModel.searchError || "没有匹配的城市，请尝试完整拼音或英文名"
-                                    color: daysModel.searchError ? Commons.Color.urgent : Commons.Color.popups.text
-                                    wrapMode: Text.Wrap; elide: Text.ElideNone; opacity: 0.7
-                                }
-                                Repeater {
-                                    model: daysModel.results
                                     Rectangle {
-                                        required property var modelData
-                                        required property int index
-                                        width: weatherColumn.width; height: resultLabels.implicitHeight + 14; radius: 5
-                                        color: root.resultIndex === index ? root.soft : "transparent"
-                                        Column {
-                                            id: resultLabels
-                                            x: 11; y: 7; width: parent.width - 22
-                                            spacing: 4
-                                            Label { width: parent.width; text: modelData.name + (modelData.englishName && modelData.englishName !== modelData.name ? " · " + modelData.englishName : "") }
-                                            Label { width: parent.width; text: [modelData.admin1, modelData.country].filter(function(t) { return !!t }).join(" · "); opacity: 0.7; font.pixelSize: 13 }
+                                        width: parent.width; height: 44; radius: 6
+                                        visible: !root.fixedLocation
+                                        color: root.soft
+                                        border.color: cityInput.activeFocus ? Commons.Color.accent : "transparent"
+                                        border.width: 1
+                                        SafeCityInput {
+                                            id: cityInput
+                                            anchors.left: parent.left; anchors.leftMargin: 11
+                                            anchors.right: inputActions.left; anchors.rightMargin: 10
+                                            anchors.top: parent.top; anchors.bottom: parent.bottom
+                                            verticalAlignment: TextInput.AlignVCenter
+                                            color: Commons.Color.popups.text
+                                            selectionColor: Commons.Color.accent; selectedTextColor: Commons.Color.background
+                                            font.family: Commons.Style.font.family; font.pixelSize: 16
+                                            selectByMouse: true; clip: true; maximumLength: 120
+                                            onTextChanged: { root.pasteError = ""; if (!inputMethodComposing) daysModel.search(text) }
+                                            onInputMethodComposingChanged: if (!inputMethodComposing) daysModel.search(text)
+                                            onPasteRequested: root.requestPaste()
+                                            Keys.onEscapePressed: function(event) {
+                                                if (inputMethodComposing) { event.accepted = false; return }
+                                                if (text.length) { text = ""; event.accepted = true }
+                                                else root.close()
+                                            }
+                                            onSearchKeyPressed: function(event) {
+                                                if (event.key === Qt.Key_Down) { root.resultIndex = Math.min(daysModel.results.length - 1, root.resultIndex + 1); event.accepted = true }
+                                                else if (event.key === Qt.Key_Up) { root.resultIndex = Math.max(0, root.resultIndex - 1); event.accepted = true }
+                                                else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && daysModel.results.length > 0) { root.chooseCity(daysModel.results[Math.max(0, root.resultIndex)]); event.accepted = true }
+                                            }
                                         }
-                                        MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onEntered: root.resultIndex = index; onClicked: root.chooseCity(modelData) }
-                                    }
-                                }
-                            }
-                            Label { width: parent.width; visible: root.settingsError !== ""; text: root.settingsError; color: Commons.Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
-                            Column {
-                                width: parent.width
-                                visible: !root.searching
-                                spacing: 12
-                                Row {
-                                    width: parent.width
-                                    spacing: 20
-                                    WeatherIcon { id: currentWeatherIcon; width: 80; height: 80; icon: root.current ? root.current.icon : "unknown"; anchors.verticalCenter: parent.verticalCenter }
-                                    Column {
-                                        width: parent.width - currentWeatherIcon.width - parent.spacing
-                                        spacing: 4
-                                        Label { text: root.current ? root.numeric(root.current.temperature, "°") : "—"; font.pixelSize: 52; font.bold: true }
-                                        Label { width: parent.width; text: root.current ? root.current.description + "  ·  体感 " + root.numeric(root.current.feelsLike, "°") : daysModel.weatherBusy ? "正在获取天气…" : "等待天气数据"; opacity: 0.85; font.pixelSize: 15; wrapMode: Text.Wrap; elide: Text.ElideNone }
-                                    }
-                                }
-                                Label {
-                                    width: parent.width
-                                    text: root.current ? "湿度 " + root.numeric(root.current.humidity, "%") + "    风速 " + root.numeric(root.current.wind, " km/h") : ""
-                                    opacity: 0.7; font.pixelSize: 14
-                                }
-                                Label {
-                                    visible: daysModel.weatherError !== "" || (root.weather && root.weather.warning !== "")
-                                    width: parent.width; wrapMode: Text.Wrap; elide: Text.ElideNone
-                                    text: daysModel.weatherError || (root.weather ? root.weather.warning : "")
-                                    color: daysModel.weatherError ? Commons.Color.urgent : root.workColor
-                                    font.pixelSize: 15
-                                }
-                                Repeater {
-                                    model: root.weather ? root.weather.days : []
-                                    Rectangle {
-                                        required property var modelData
-                                        width: weatherColumn.width; height: weatherRow.implicitHeight + 12; radius: 6
-                                        color: modelData.kind === "today" ? root.soft : "transparent"
+                                        Label { anchors.fill: cityInput; verticalAlignment: Text.AlignVCenter; text: weatherSettings.savedSettings.provider === "qweather" ? "搜索城市或地点，如 岳麓山" : "搜索城市，如 上海 / shanghai"; opacity: 0.65; visible: cityInput.text.length === 0 }
                                         Row {
-                                            id: weatherRow
-                                            x: 10; y: 6; width: parent.width - 20; spacing: 12
-                                            Column {
-                                                id: weatherDate
-                                                width: 54; spacing: 5
-                                                Label { text: modelData.label; font.bold: modelData.kind === "today"; font.pixelSize: 16 }
-                                                Label { text: root.shortDate(modelData.date); font.pixelSize: 13; opacity: 0.7 }
+                                            id: inputActions
+                                            anchors.right: parent.right; anchors.rightMargin: 4
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 4
+                                            ActionButton {
+                                                width: 30
+                                                text: "×"
+                                                color: "transparent"
+                                                visible: cityInput.text.length > 0
+                                                Accessible.name: "清空城市搜索"
+                                                onClicked: cityInput.text = ""
                                             }
-                                            WeatherIcon { id: dailyWeatherIcon; width: 34; height: 34; icon: modelData.icon; anchors.verticalCenter: parent.verticalCenter }
-                                            Column {
-                                                width: weatherRow.width - weatherDate.width - dailyWeatherIcon.width - weatherTemperatures.width - weatherRow.spacing * 3; spacing: 6
-                                                Label { width: parent.width; text: modelData.description; font.pixelSize: 15 }
-                                                Label { width: parent.width; text: "降水 " + root.numeric(modelData.rain, " mm", 1); opacity: 0.7; font.pixelSize: 13 }
-                                            }
-                                            Column {
-                                                id: weatherTemperatures
-                                                width: 126; spacing: 6
-                                                Label { width: parent.width; text: root.numeric(modelData.min, "°") + " / " + root.numeric(modelData.max, "°"); horizontalAlignment: Text.AlignRight; font.pixelSize: 16 }
-                                                Label { width: parent.width; text: modelData.kind === "history" ? "历史模型数据" : "降水概率 " + root.numeric(modelData.rainProbability, "%"); horizontalAlignment: Text.AlignRight; opacity: 0.7; font.pixelSize: 13 }
+                                            ActionButton {
+                                                id: locationButton
+                                                text: root.locationMode === "manual" ? "IP 定位" : "自动定位"
+                                                enabled: root.locationMode === "manual"
+                                                onClicked: { root.automaticRequested(); cityInput.text = "" }
                                             }
                                         }
                                     }
+                                    Label { width: parent.width; visible: root.pasteError !== ""; text: root.pasteError; color: Commons.Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
+                                    Column {
+                                        width: parent.width
+                                        visible: root.searching
+                                        spacing: 4
+                                        Label {
+                                            width: parent.width
+                                            visible: daysModel.searchBusy || daysModel.results.length === 0 || daysModel.searchError !== ""
+                                            text: daysModel.searchBusy ? "正在搜索…" : daysModel.searchError || "没有匹配的地点，请换个名称"
+                                            color: daysModel.searchError ? Commons.Color.urgent : Commons.Color.popups.text
+                                            wrapMode: Text.Wrap; elide: Text.ElideNone; opacity: 0.7
+                                        }
+                                        Repeater {
+                                            model: daysModel.results
+                                            Rectangle {
+                                                required property var modelData
+                                                required property int index
+                                                width: weatherColumn.width; height: resultLabels.implicitHeight + 14; radius: 5
+                                                color: root.resultIndex === index ? root.soft : "transparent"
+                                                Column {
+                                                    id: resultLabels
+                                                    x: 11; y: 7; width: parent.width - 22
+                                                    spacing: 4
+                                                    Label { width: parent.width; text: root.placeName(modelData) + (modelData.englishName && modelData.englishName !== modelData.name ? " · " + modelData.englishName : "") }
+                                                    Label { width: parent.width; text: [modelData.admin1, modelData.country].filter(function(t) { return !!t }).join(" · "); opacity: 0.7; font.pixelSize: 13 }
+                                                }
+                                                MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onEntered: root.resultIndex = index; onClicked: root.chooseCity(modelData) }
+                                            }
+                                        }
+                                    }
+                                    Label { width: parent.width; visible: root.settingsError !== ""; text: root.settingsError; color: Commons.Color.urgent; wrapMode: Text.Wrap; elide: Text.ElideNone }
+                                    Column {
+                                        width: parent.width
+                                        visible: !root.searching
+                                        spacing: 12
+                                        Row {
+                                            width: parent.width
+                                            height: Math.max(currentSummary.implicitHeight, alertButton.visible ? alertButton.height : 0) + 16
+                                            spacing: 16
+                                            WeatherIcon { id: currentWeatherIcon; width: 64; height: 64; icon: root.current ? root.current.icon : "unknown"; anchors.verticalCenter: parent.verticalCenter }
+                                            Column {
+                                                id: currentSummary
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: parent.width - currentWeatherIcon.width - parent.spacing - (alertButton.visible ? alertButton.width + parent.spacing : 0)
+                                                spacing: 6
+                                                Label { text: root.current ? root.numeric(root.current.temperature, "°") : "—"; font.pixelSize: 44; font.bold: true }
+                                                Label { width: parent.width; text: root.current ? root.current.description + "  ·  体感 " + root.numeric(root.current.feelsLike, "°") : daysModel.weatherBusy ? "正在获取天气…" : "等待天气数据"; opacity: 0.85; font.pixelSize: 14; wrapMode: Text.Wrap; elide: Text.ElideNone }
+                                                Label {
+                                                    width: parent.width
+                                                    visible: !!root.current
+                                                    text: root.current ? "湿度 " + root.numeric(root.current.humidity, "%") + "  ·  风速 " + root.numeric(root.current.wind, " km/h") : ""
+                                                    opacity: 0.65; font.pixelSize: 12
+                                                    wrapMode: Text.Wrap; elide: Text.ElideNone
+                                                }
+                                            }
+                                            Item {
+                                                id: alertButton
+                                                visible: alertDetails.hasContent
+                                                width: 100; height: 84
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                activeFocusOnTab: true
+                                                Accessible.role: Accessible.Button
+                                                Accessible.name: "天气预警，" + (alertDetails.expanded ? "收起详情" : "展开详情")
+                                                Keys.onSpacePressed: alertDetails.expanded = !alertDetails.expanded
+                                                Keys.onReturnPressed: alertDetails.expanded = !alertDetails.expanded
+                                                Text {
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    y: 0; width: 64; height: 60
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    font.family: alertFont.name; font.pixelSize: 48
+                                                    color: alertDetails.signalColor
+                                                    text: AlertGlyphs.glyph(alertDetails.alerts.length ? alertDetails.alerts[0].icon : "999")
+                                                }
+                                                Label {
+                                                    y: 62; width: parent.width; horizontalAlignment: Text.AlignHCenter
+                                                    text: alertDetails.alerts.length ? (alertDetails.alerts[0].eventName || "天气预警") + (alertDetails.alerts.length > 1 ? " · " + alertDetails.alerts.length : "") : "预警暂不可用"
+                                                    font.pixelSize: 12; color: alertDetails.signalColor
+                                                }
+                                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: alertDetails.expanded = !alertDetails.expanded }
+                                            }
+                                        }
+                                        Label {
+                                            visible: daysModel.weatherError !== "" || (root.weather && root.weather.warning !== "")
+                                            width: parent.width; wrapMode: Text.Wrap; elide: Text.ElideNone
+                                            text: daysModel.weatherError || (root.weather ? root.weather.warning : "")
+                                            color: daysModel.weatherError ? Commons.Color.urgent : root.workColor
+                                            font.pixelSize: 15
+                                        }
+                                        WeatherAlerts {
+                                            id: alertDetails
+                                            width: parent.width
+                                            alertData: daysModel.alertData
+                                            error: daysModel.alertError
+                                            visible: hasContent && expanded
+                                        }
+                                        PreciseWeather {
+                                            width: parent.width
+                                            weather: root.weather
+                                        }
+                                        Repeater {
+                                            model: root.weather ? root.weather.days : []
+                                            Rectangle {
+                                                required property var modelData
+                                                width: weatherColumn.width; height: weatherRow.implicitHeight + 12; radius: 6
+                                                color: modelData.kind === "today" ? root.soft : "transparent"
+                                                Row {
+                                                    id: weatherRow
+                                                    x: 10; y: 6; width: parent.width - 20; spacing: 12
+                                                    Column {
+                                                        id: weatherDate
+                                                        width: 54; spacing: 5
+                                                        Label { text: modelData.label; font.bold: modelData.kind === "today"; font.pixelSize: 16 }
+                                                        Label { text: root.shortDate(modelData.date); font.pixelSize: 13; opacity: 0.7 }
+                                                    }
+                                                    WeatherIcon { id: dailyWeatherIcon; width: 34; height: 34; icon: modelData.icon; anchors.verticalCenter: parent.verticalCenter }
+                                                    Column {
+                                                        width: weatherRow.width - weatherDate.width - dailyWeatherIcon.width - weatherTemperatures.width - weatherRow.spacing * 3; spacing: 6
+                                                        Label { width: parent.width; text: modelData.description; font.pixelSize: 15 }
+                                                        Label { width: parent.width; text: "降水 " + root.numeric(modelData.rain, " mm", 1); opacity: 0.7; font.pixelSize: 13 }
+                                                    }
+                                                    Column {
+                                                        id: weatherTemperatures
+                                                        width: 126; spacing: 6
+                                                        Label { width: parent.width; text: root.numeric(modelData.min, "°") + " / " + root.numeric(modelData.max, "°"); horizontalAlignment: Text.AlignRight; font.pixelSize: 16 }
+                                                        Label { width: parent.width; text: modelData.kind === "history" ? "历史模型数据" : "降水概率 " + root.numeric(modelData.rainProbability, "%"); horizontalAlignment: Text.AlignRight; opacity: 0.7; font.pixelSize: 13 }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Label {
+                                            width: parent.width
+                                            text: root.weather ? "更新于 " + root.weather.updatedAt.slice(11, 16) + " · " + root.weather.timezone + (root.weather.stale ? " · 缓存" : "") : ""
+                                            opacity: 0.65; font.pixelSize: 13
+                                        }
+                                    }
                                 }
-                                Label {
-                                    width: parent.width
-                                    text: root.weather ? "更新于 " + root.weather.updatedAt.slice(11, 16) + " · " + root.weather.timezone + (root.weather.stale ? " · 缓存" : "") : ""
-                                    opacity: 0.65; font.pixelSize: 13
-                                }
+                            }
+                            WeatherSettings {
+                                id: weatherSettings
+                                currentLocation: root.city && root.locationMode === "manual" ? root.city : root.weather ? root.weather.city : null
+                                effectiveProvider: root.weather ? root.weather.provider || "open-meteo" : ""
+                                anchors.left: parent.left; anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: implicitHeight
+                                editorHeight: weatherPane.height
+                                onConfigurationChanged: { cityInput.text = ""; daysModel.weatherRevision++; daysModel.changeLocation(); daysModel.search(cityInput.text) }
                             }
                         }
                     }
