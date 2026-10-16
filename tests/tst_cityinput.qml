@@ -10,7 +10,7 @@ TestCase {
     when: windowShown
     Days.SafeCityInput { id: input; width: 400; height: 44 }
     SignalSpy { id: pasteSpy; target: input; signalName: "pasteRequested" }
-    function init() { input.text = ""; input.forceActiveFocus(); pasteSpy.clear() }
+    function init() { input.text = ""; input.forceActiveFocus(); verify(input.activeFocus); pasteSpy.clear() }
     function test_typing_editing() {
         keyClick(Qt.Key_S); keyClick(Qt.Key_H); keyClick(Qt.Key_A)
         compare(input.text, "sha")
@@ -19,14 +19,15 @@ TestCase {
         keyClick(Qt.Key_Delete); compare(input.text, "s")
         keyClick(Qt.Key_A, Qt.ControlModifier); keyClick(Qt.Key_B)
         compare(input.text, "b")
-        verify(!input.readOnly)
+        verify(input.readOnly)
+        verify(!input.canPaste)
     }
     function test_paste_is_explicit() {
         keyClick(Qt.Key_V, Qt.ControlModifier); compare(pasteSpy.count, 1)
         keyClick(Qt.Key_Insert, Qt.ShiftModifier); compare(pasteSpy.count, 2)
         compare(input.text, "")
         mouseClick(input, 10, 10, Qt.MiddleButton); compare(pasteSpy.count, 2)
-        verify(!input.readOnly)
+        verify(input.readOnly)
     }
     function test_selection_and_limit() {
         input.text = "shanghai"; input.select(0, 5); input.replaceSelection("上海")

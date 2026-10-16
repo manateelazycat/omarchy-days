@@ -3,11 +3,12 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 
-// Use native editing for IME composition while focused. Inactive fields stay
-// read-only to avoid clipboard probes from every hidden monitor instance.
+// Keep Qt's clipboard probe and native paste paths disabled at all times.
+// Direct key text supports English/pinyin; Chinese text can be pasted through
+// the bounded, asynchronous helper instead, including in weather settings.
 TextInput {
     id: root
-    readOnly: !activeFocus
+    readOnly: true
     selectByMouse: true
     clip: true
     maximumLength: 120
@@ -35,6 +36,21 @@ TextInput {
         cursorPosition = start + addition.length
     }
 
+    function deleteText(backward, word) {
+        if (selectionStart !== selectionEnd) { replaceSelection(""); return }
+        var start = cursorPosition
+        var end = cursorPosition
+        if (backward) {
+            start = word ? text.slice(0, start).replace(/\s*\S+\s*$/, "").length : Math.max(0, start - 1)
+            if (!word && start > 0 && /[\uDC00-\uDFFF]/.test(text.charAt(start))) start--
+        } else {
+            end = word ? end + (text.slice(end).match(/^\s*\S+\s*/) || [""])[0].length : Math.min(text.length, end + 1)
+            if (!word && end < text.length && /[\uD800-\uDBFF]/.test(text.charAt(end - 1))) end++
+        }
+        select(start, end)
+        replaceSelection("")
+    }
+
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.MiddleButton
@@ -42,12 +58,21 @@ TextInput {
     }
 
     Keys.onPressed: function(event) {
-        if (root.inputMethodComposing) { event.accepted = false; return }
         root.searchKeyPressed(event)
         if (event.accepted) return
         var ctrl = !!(event.modifiers & Qt.ControlModifier)
         if ((ctrl && event.key === Qt.Key_V) || ((event.modifiers & Qt.ShiftModifier) && event.key === Qt.Key_Insert)) {
             root.pasteRequested()
+            event.accepted = true
+        } else if (ctrl && event.key === Qt.Key_X) {
+            root.copy()
+            root.replaceSelection("")
+            event.accepted = true
+        } else if (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete) {
+            root.deleteText(event.key === Qt.Key_Backspace, ctrl)
+            event.accepted = true
+        } else if (!ctrl && !(event.modifiers & (Qt.AltModifier | Qt.MetaModifier)) && event.text && !/[\x00-\x1f\x7f]/.test(event.text)) {
+            root.replaceSelection(event.text)
             event.accepted = true
         }
     }
