@@ -14,10 +14,11 @@ BarWidget {
     readonly property bool opened: panel.opened
     readonly property bool popoutSwitchClosing: panel.popoutSwitchClosing
     readonly property bool preservePopupContentAppearance: true
+    property Item popupAnchor: button
 
-    function open() { panel.open() }
+    function open(anchor) { root.popupAnchor = anchor || button; panel.open() }
     function close() { panel.close() }
-    function toggle() { root.opened ? root.close() : root.open() }
+    function toggle(anchor) { root.opened ? root.close() : root.open(anchor) }
     function closeForPopoutSwitch() { panel.closeForPopoutSwitch() }
     function persist(values) {
         var entry = {id: root.moduleName}
@@ -61,7 +62,7 @@ BarWidget {
     DaysPanel {
         id: panel
         bar: root.bar
-        anchorItem: button
+        anchorItem: root.popupAnchor
         hostWidget: root
         city: root.setting("city", null)
         locationMode: root.setting("locationMode", "auto")
