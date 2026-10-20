@@ -15,7 +15,7 @@ if [[ "$source_dir" != "$target_dir" ]]; then
     printf '目标是 Git 安装目录，请在该目录中更新插件：%s\n' "$target_dir" >&2
     exit 1
   fi
-  for item in manifest.json BarWidget.qml CalendarIcon.qml DaysPanel.qml WeatherSettings.qml WeatherConfigField.qml SafeCityInput.qml DaysModel.qml ActionButton.qml Label.qml WeatherIcon.qml backend.py weather_notifications.py session_watch.py PreciseWeather.qml PrecipitationChart.qml WeatherAlerts.qml clipboard.py requirements.txt bootstrap.sh install.sh data assets licenses CompatUi README.md LICENSE preview.png; do
+  for item in manifest.json BarWidget.qml CalendarIcon.qml DaysPanel.qml WeatherSettings.qml WeatherConfigField.qml SafeCityInput.qml DaysModel.qml ProcessWatchdog.qml ActionButton.qml Label.qml WeatherIcon.qml backend.py weather_notifications.py session_watch.py PreciseWeather.qml PrecipitationChart.qml WeatherAlerts.qml clipboard.py requirements.txt bootstrap.sh install.sh data assets licenses CompatUi README.md LICENSE preview.png; do
     if [[ "$item" == data ]]; then
       mkdir -p "$target_dir/data/holidays"
       cp -- "$source_dir/data/cities.json" "$target_dir/data/"

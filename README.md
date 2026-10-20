@@ -84,6 +84,8 @@ omarchy-shell andy.days refresh
 
 ## 开发与验证
 
+网络响应最多读取 4 MB gzip 压缩数据、解压后最多 2 MB JSON（文本响应最多 200 KB）。网络等待超时为 8 秒，HTTP 响应读取使用 20 秒总预算，包含 HTTP 头、重定向和错误响应。网络后台任务另设 120 秒进程超时，覆盖域名解析、连接建立和跨显示器锁等待；超时先终止进程，1 秒后仍未退出则强制结束，随后允许继续刷新。
+
 ```bash
 bash bootstrap.sh
 python3 -m unittest discover -s tests -v

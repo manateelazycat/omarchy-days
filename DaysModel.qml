@@ -180,6 +180,12 @@ Item {
         onTriggered: root.refreshAlerts(false)
     }
     Timer { id: observerRestart; interval: 2000; onTriggered: sessionProcess.running = true }
+    // Allow the full IP lookup -> provider -> fallback chain, including time
+    // waiting for another monitor's worker. Also bounds DNS and lock waits.
+    ProcessWatchdog { id: weatherWatchdog; process: weatherProcess }
+    ProcessWatchdog { id: alertWatchdog; process: alertProcess }
+    ProcessWatchdog { id: searchWatchdog; process: searchProcess }
+    ProcessWatchdog { process: holidayProcess }
     Process {
         id: sessionProcess
         command: ["python3", decodeURIComponent(String(Qt.resolvedUrl("session_watch.py")).replace(/^file:\/\//, ""))]
@@ -220,7 +226,8 @@ Item {
             if (!root.sessionAvailable) { root.weatherBusy = false; return }
             weatherTimer.restart()
             if (root.weatherKey === root.desiredWeatherKey) {
-                var result = root.parse(weatherOut.text, weatherErr.text)
+                var result = weatherWatchdog.timedOut ? {ok: false, error: "天气请求超时，请稍后重试"}
+                                                      : root.parse(weatherOut.text, weatherErr.text)
                 if (code === 0 && result.ok) { root.weatherData = result; root.notifyWeather("weather", result) }
                 else {
                     root.weatherData = null
@@ -238,7 +245,8 @@ Item {
         onExited: function(code) {
             if (!root.sessionAvailable) return
             if (root.alertRequestKey === root.alertKey) {
-                var result = root.parse(alertOut.text, alertErr.text)
+                var result = alertWatchdog.timedOut ? {ok: false, error: "预警请求超时，请稍后重试"}
+                                                    : root.parse(alertOut.text, alertErr.text)
                 root.alertData = result
                 root.notifyWeather("alerts", result)
                 root.alertError = result.ok ? "" : result.error || "预警获取失败"
@@ -253,7 +261,8 @@ Item {
         stderr: StdioCollector { id: searchErr; waitForEnd: true }
         onExited: function(code) {
             if (root.runningQuery === root.searchQuery && root.searchRevision === root.weatherRevision) {
-                var result = root.parse(searchOut.text, searchErr.text)
+                var result = searchWatchdog.timedOut ? {ok: false, error: "地点搜索超时，请重试"}
+                                                     : root.parse(searchOut.text, searchErr.text)
                 root.results = result.results || []
                 root.searchError = result.error || (result.ok ? "" : "搜索失败，请重试")
                 root.searchBusy = false

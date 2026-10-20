@@ -225,6 +225,7 @@ Item {
             ActionButton { text: "取消"; fontPixelSize: 12; implicitHeight: 30; enabled: !root.busy; onClicked: { root.editing = false; root.message = "" } }
         }
     }
+    ProcessWatchdog { id: watchdog; process: process }
     Process {
         id: process
         property string action: ""
@@ -234,7 +235,7 @@ Item {
         stdout: StdioCollector { id: output; waitForEnd: true }
         onExited: function(code) {
             var result
-            try { result = JSON.parse(output.text) }
+            try { result = watchdog.timedOut ? {ok: false, error: "连接测试超时，请稍后重试"} : JSON.parse(output.text) }
             catch (e) { result = {ok: false, error: "无法读取天气配置，请重试"} }
             root.failed = code !== 0 || !result.ok
             root.message = root.failed ? result.error || "操作失败，请重试" : result.message || ""

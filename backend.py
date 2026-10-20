@@ -11,21 +11,27 @@ import gzip
 import fcntl
 from concurrent.futures import ThreadPoolExecutor
 import calendar
+from functools import partial
 import hashlib
+import http.client
+import io
 import json
 import math
 import os
 from pathlib import Path
 import re
 import site
+import socket
 import sys
 import subprocess
 import tempfile
+import threading
 import time
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -33,6 +39,11 @@ ROOT = Path(__file__).resolve().parent
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "omarchy-days"
 WEATHER_SETTINGS = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "omarchy-days/weather.json"
 RUNTIME = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "omarchy-days/venv"
+NETWORK_IDLE_TIMEOUT = 8
+NETWORK_TOTAL_TIMEOUT = 20
+JSON_MAX_BYTES = 2_000_000
+GZIP_MAX_BYTES = 4_000_000
+TEXT_MAX_BYTES = 200_000
 # Keep the virtual environment outside the plugin: Omarchy rejects symlinks
 # anywhere inside a plugin directory, including the python symlink in a venv.
 runtime_site = RUNTIME / f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
@@ -72,54 +83,157 @@ class NoAuthRedirect(urllib.request.HTTPRedirectHandler):
         raise DataError("天气认证请求被重定向，请检查 API Host")
 
 
+class RequestDeadline:
+    """Interrupt socket reads, including HTTP headers and chunk framing.
+
+    A timer shuts down the sockets rather than closing a buffered reader from
+    another thread (which can wait for its read lock). DNS and connection setup
+    are also covered by the outer QML process watchdog.
+    """
+    def __init__(self):
+        self.expires = time.monotonic() + NETWORK_TOTAL_TIMEOUT
+        self.sockets = []
+        self.lock = threading.Lock()
+        self.timer = threading.Timer(NETWORK_TOTAL_TIMEOUT, self.interrupt)
+        self.timer.daemon = True
+
+    def __enter__(self):
+        self.timer.start()
+        return self
+
+    def __exit__(self, *args):
+        self.timer.cancel()
+        self.timer.join()
+
+    def check(self):
+        if time.monotonic() >= self.expires:
+            raise DataError("网络请求超时，请稍后重试")
+
+    def interrupt(self):
+        with self.lock:
+            for sock in self.sockets:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass  # Completed responses may already have closed sockets.
+
+    def response(self, sock, *args, **kwargs):
+        with self.lock:
+            self.check()
+            self.sockets.append(sock)
+        return http.client.HTTPResponse(sock, *args, **kwargs)
+
+    def connection(self, connection_type, *args, **kwargs):
+        self.check()
+        connection = connection_type(*args, **kwargs)
+        connection.response_class = self.response
+        return connection
+
+
+class DeadlineHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, deadline):
+        super().__init__()
+        self.deadline = deadline
+
+    def http_open(self, request):
+        return self.do_open(partial(self.deadline.connection, http.client.HTTPConnection), request)
+
+
+class DeadlineHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, deadline):
+        super().__init__()
+        self.deadline = deadline
+
+    def https_open(self, request):
+        return self.do_open(partial(self.deadline.connection, http.client.HTTPSConnection), request,
+                            context=self._context)
+
+
+def response_opener(deadline, authenticated=False):
+    handlers = [DeadlineHTTPHandler(deadline), DeadlineHTTPSHandler(deadline)]
+    if authenticated:
+        handlers.append(NoAuthRedirect())
+    return urllib.request.build_opener(*handlers)
+
+
+def read_response(response, deadline, limit):
+    compressed = response.headers.get("Content-Encoding", "").strip().lower() == "gzip"
+    input_limit = GZIP_MAX_BYTES if compressed else limit
+    content = bytearray()
+    read = getattr(response, "read1", response.read)
+    try:
+        while len(content) <= input_limit:
+            deadline.check()
+            chunk = read(min(65_536, input_limit + 1 - len(content)))
+            deadline.check()
+            if not chunk:
+                break
+            content.extend(chunk)
+    except (OSError, http.client.HTTPException):
+        deadline.check()
+        raise
+    if len(content) > input_limit:
+        raise DataError("服务返回的数据过大")
+    if compressed:
+        # The decompressor only sees finite in-memory input. Empty gzip members
+        # therefore consume the input budget even when they produce no output.
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(content)) as stream:
+                content = stream.read(limit + 1)
+        except (OSError, EOFError, zlib.error) as exc:
+            raise DataError("数据服务返回格式错误") from exc
+    deadline.check()
+    if len(content) > limit:
+        raise DataError("服务返回的数据过大")
+    return bytes(content)
+
+
 def fetch_json(url: str, params=None, headers=None):
     if params:
         url += "?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(url, headers={"User-Agent": "Omarchy-Days/0.1", "Accept": "application/json", **(headers or {})})
-    try:
-        opener = urllib.request.build_opener(NoAuthRedirect()) if headers else urllib.request.build_opener()
-        with opener.open(request, timeout=8) as response:
-            if response.headers.get("Content-Encoding") == "gzip":
-                with gzip.GzipFile(fileobj=response) as stream:
-                    content = stream.read(2_000_001)
-            else:
-                content = response.read(2_000_001)
-        if len(content) > 2_000_000:
-            raise DataError("服务返回的数据过大")
-        result = json.loads(content)
-        if not isinstance(result, dict) or result.get("error"):
-            raise DataError("服务返回无效数据")
-        return result
-    except urllib.error.HTTPError as exc:
-        if exc.code == 400:
-            try:
-                stream = gzip.GzipFile(fileobj=exc) if exc.headers.get("Content-Encoding") == "gzip" else exc
-                detail = json.loads(stream.read(16384))
-                if detail.get("error", {}).get("type", "").endswith("#no-such-location"):
-                    raise LocationNotFound("没有匹配的地点") from exc
-            except (ValueError, OSError):
-                pass
-        raise DataError(f"数据服务暂不可用（HTTP {exc.code}）") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise DataError("网络连接失败，请稍后重试") from exc
-    except (ValueError, UnicodeError) as exc:
-        raise DataError("数据服务返回格式错误") from exc
+    with RequestDeadline() as deadline:
+        try:
+            opener = response_opener(deadline, authenticated=bool(headers))
+            with opener.open(request, timeout=NETWORK_IDLE_TIMEOUT) as response:
+                content = read_response(response, deadline, JSON_MAX_BYTES)
+            result = json.loads(content)
+            if not isinstance(result, dict) or result.get("error"):
+                raise DataError("服务返回无效数据")
+            return result
+        except urllib.error.HTTPError as exc:
+            with exc:
+                if exc.code == 400:
+                    try:
+                        detail = json.loads(read_response(exc, deadline, 16_384))
+                        error = detail.get("error") if isinstance(detail, dict) else None
+                        if isinstance(error, dict) and str(error.get("type", "")).endswith("#no-such-location"):
+                            raise LocationNotFound("没有匹配的地点") from exc
+                    except (ValueError, OSError, http.client.HTTPException):
+                        deadline.check()
+            raise DataError(f"数据服务暂不可用（HTTP {exc.code}）") from exc
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            deadline.check()
+            raise DataError("网络连接失败，请稍后重试") from exc
+        except (ValueError, UnicodeError) as exc:
+            raise DataError("数据服务返回格式错误") from exc
 
 
 def fetch_text(url: str):
     request = urllib.request.Request(url, headers={"User-Agent": "Omarchy-Days/0.1", "Accept": "text/plain"})
-    try:
-        with urllib.request.urlopen(request, timeout=8) as response:
-            content = response.read(200_001)
-        if len(content) > 200_000:
-            raise DataError("服务返回的数据过大")
-        return content.decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        raise DataError(f"数据服务暂不可用（HTTP {exc.code}）") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise DataError("网络连接失败，请稍后重试") from exc
-    except UnicodeError as exc:
-        raise DataError("数据服务返回格式错误") from exc
+    with RequestDeadline() as deadline:
+        try:
+            with response_opener(deadline).open(request, timeout=NETWORK_IDLE_TIMEOUT) as response:
+                content = read_response(response, deadline, TEXT_MAX_BYTES)
+            return content.decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            raise DataError(f"数据服务暂不可用（HTTP {exc.code}）") from exc
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            deadline.check()
+            raise DataError("网络连接失败，请稍后重试") from exc
+        except UnicodeError as exc:
+            raise DataError("数据服务返回格式错误") from exc
 
 
 def normalize_query(value: str):
